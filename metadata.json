@@ -1,0 +1,6 @@
+{
+  "name": "Knowledge Graph Explorer",
+  "description": "Visualize and explore relationships between entities hidden in text using AI-powered graph extraction.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
