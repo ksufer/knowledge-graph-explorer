@@ -2,8 +2,7 @@
 
 Visualize and explore relationships between entities hidden in text using AI-powered graph extraction.
 
-> [!NOTE]
-> Screenshot placeholder — replace with an actual screenshot of the app.
+![image-20260507001621271](./README.assets/image-20260507001621271.png)
 
 ## Features
 
