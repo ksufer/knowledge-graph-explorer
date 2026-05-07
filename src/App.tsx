@@ -75,7 +75,7 @@ export default function App() {
     setOriginalText(text);
     analysisCacheRef.current.clear();
     setPanelState(prev => ({ ...prev, isLoading: true, selectedEntityId: null }));
-    
+
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -86,19 +86,48 @@ export default function App() {
       if (!res.ok) {
         throw new Error(`Analyze API failed with status ${res.status}`);
       }
-      const data = await res.json();
-      
-      setGraphData({
-        nodes: (data.entities || []).map((e: any) => ({ ...e, depth: 0, expanded: false })),
-        edges: data.relations || []
-      });
-      
-      setPanelState({
-        selectedEntityId: null,
-        analysisContent: data.summary || "生成图谱完成。",
-        suggestedExplorations: [],
-        isLoading: false
-      });
+
+      // Consume SSE stream
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        sseBuffer += decoder.decode(value, { stream: true });
+        const parts = sseBuffer.split('\n\n');
+        sseBuffer = parts.pop() || '';
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data: ')) continue;
+
+          const payload = JSON.parse(line.slice(6));
+
+          if (payload.type === 'chunk') {
+            setPanelState(prev => ({
+              ...prev,
+              analysisContent: payload.text
+            }));
+          } else if (payload.type === 'done') {
+            setGraphData({
+              nodes: (payload.entities || []).map((e: any) => ({ ...e, depth: 0, expanded: false })),
+              edges: payload.relations || []
+            });
+
+            setPanelState({
+              selectedEntityId: null,
+              analysisContent: payload.summary || '生成图谱完成。',
+              suggestedExplorations: [],
+              isLoading: false
+            });
+          } else if (payload.type === 'error') {
+            throw new Error(payload.message || 'Stream error');
+          }
+        }
+      }
     } catch (error: any) {
       if (error.name === 'AbortError') return;
       console.error(error);

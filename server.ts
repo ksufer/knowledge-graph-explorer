@@ -37,32 +37,69 @@ app.post("/api/analyze", async (req, res) => {
       return res.status(400).json({ error: "Text exceeds maximum length of 20000 characters." });
     }
 
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
     const analyzePrompt = loadPrompt("analyze");
 
-    const response = await openai.chat.completions.create({
+    const stream = await openai.chat.completions.create({
       model: MODEL_NAME,
       messages: [
         { role: "system", content: analyzePrompt.system },
         { role: "user", content: render(analyzePrompt.user, { text }) }
       ],
-      response_format: { type: "json_object" },
+      stream: true,
     }, { timeout: 30000 });
 
-    const content = response.choices[0]?.message?.content || "{}";
-    const data = JSON.parse(content);
-    
-    // Validate output structure
-    if (!Array.isArray(data.entities) || !Array.isArray(data.relations)) {
-      return res.status(500).json({ error: "Invalid LLM response format" });
+    let buffer = '';
+    let lastSentLength = 0;
+    summaryStartOffset = -1;
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta;
+      const content = delta?.content;
+      if (content) {
+        buffer += content;
+        const summary = extractPartialSummary(buffer);
+        if (summary.length > lastSentLength) {
+          lastSentLength = summary.length;
+          res.write(`data: ${JSON.stringify({ type: 'chunk', text: summary })}\n\n`);
+        }
+      }
     }
-    
+
+    // Parse complete response
+    const data = JSON.parse(buffer);
+
+    if (!Array.isArray(data.entities) || !Array.isArray(data.relations)) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Invalid LLM response format' })}\n\n`);
+      res.end();
+      return;
+    }
+
     data.entities = data.entities.filter(validEntity);
     data.relations = data.relations.filter(validRelation);
 
-    res.json(data);
+    res.write(`data: ${JSON.stringify({
+      type: 'done',
+      summary: data.summary || '',
+      entities: data.entities,
+      relations: data.relations
+    })}\n\n`);
+    res.end();
+
   } catch (error) {
     console.error("Analysis Error:", error);
-    res.status(500).json({ error: "Failed to analyze text" });
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to analyze text' })}\n\n`);
+      res.end();
+    } else {
+      res.status(500).json({ error: "Failed to analyze text" });
+    }
   }
 });
 
@@ -86,6 +123,33 @@ function extractPartialAnalysis(buffer: string): string {
   }
 
   // Unescape JSON string (order matters: quotes first, backslashes last)
+  return text
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\\\\/g, '\\');
+}
+
+// Extract partial "summary" text from streaming JSON buffer.
+// Summary is the first field in the analyze response, so content arrives early.
+let summaryStartOffset = -1;
+
+function extractPartialSummary(buffer: string): string {
+  if (summaryStartOffset === -1) {
+    const startMatch = buffer.match(/"summary"\s*:\s*"/);
+    if (!startMatch) return '';
+    summaryStartOffset = startMatch.index! + startMatch[0].length;
+  }
+
+  let text = buffer.slice(summaryStartOffset);
+
+  // Stop at the next JSON key boundary
+  const endIdx = text.indexOf('","entities"');
+  if (endIdx !== -1) {
+    text = text.slice(0, endIdx);
+  }
+
   return text
     .replace(/\\"/g, '"')
     .replace(/\\n/g, '\n')
