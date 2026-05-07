@@ -73,7 +73,7 @@ app.post("/api/analyze", async (req, res) => {
     }
 
     // Parse complete response
-    const data = JSON.parse(buffer);
+    const data = parseJSON(buffer);
 
     if (!Array.isArray(data.entities) || !Array.isArray(data.relations)) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Invalid LLM response format' })}\n\n`);
@@ -158,6 +158,15 @@ function extractPartialSummary(buffer: string): string {
     .replace(/\\\\/g, '\\');
 }
 
+function parseJSON(text: string): any {
+  // Strip markdown code fences that some models wrap around JSON output
+  let cleaned = text.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+  return JSON.parse(cleaned);
+}
+
 function validEntity(e: any): boolean {
   return e && e.id && e.name;
 }
@@ -219,7 +228,7 @@ app.post("/api/expand", async (req, res) => {
     }
 
     // Parse complete response
-    const data = JSON.parse(buffer);
+    const data = parseJSON(buffer);
 
     if (!Array.isArray(data.newEntities) || !Array.isArray(data.newRelations)) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'Invalid LLM response format' })}\n\n`);
