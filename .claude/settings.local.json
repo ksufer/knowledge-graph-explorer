@@ -5,7 +5,10 @@
       "Bash(npx tsc *)",
       "Bash(taskkill /F /IM node.exe)",
       "Bash(git *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(timeout 8 npx tsx server.ts)",
+      "Bash(PORT=3099 timeout 8 npx tsx server.ts)",
+      "Bash(npx tsx *)"
     ]
   }
 }

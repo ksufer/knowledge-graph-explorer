@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import dotenv from "dotenv";
+import { loadPrompt, render } from "./prompts/loader";
 
 dotenv.config();
 
@@ -36,38 +37,13 @@ app.post("/api/analyze", async (req, res) => {
       return res.status(400).json({ error: "Text exceeds maximum length of 20000 characters." });
     }
 
+    const analyzePrompt = loadPrompt("analyze");
+
     const response = await openai.chat.completions.create({
       model: MODEL_NAME,
       messages: [
-        {
-          role: "system",
-          content: `你是一个知识图谱构建专家。请分析文本，抽取所有实体和它们之间的关系。
-抽取至少 5 个有意义的实体（包括隐含的，太少会导致知识图谱空洞），关系要具体（不要泛泛的”相关”），每个实体至少参与一条关系。
-
-严格按照以下 JSON 格式返回：
-{
-  "entities": [
-    {
-      "id": "唯一标识符(英文snake_case)",
-      "name": "实体名称(原文中的称呼)",
-      "type": "person|location|organization|event|concept|time|other",
-      "description": "一句话描述"
-    }
-  ],
-  "relations": [
-    {
-      "source": "实体id",
-      "target": "实体id",
-      "relation": "关系描述(简短动词短语)"
-    }
-  ],
-  "summary": "对这段文本的整体解析(2-3段，涵盖背景、核心含义、延伸思考)"
-}`
-        },
-        {
-          role: "user",
-          content: `分析以下文本：\n\n文本：${text}`
-        }
+        { role: "system", content: analyzePrompt.system },
+        { role: "user", content: render(analyzePrompt.user, { text }) }
       ],
       response_format: { type: "json_object" },
     }, { timeout: 30000 });
@@ -143,46 +119,18 @@ app.post("/api/expand", async (req, res) => {
       'Connection': 'keep-alive',
     });
 
+    const expandPrompt = loadPrompt("expand");
+
     const stream = await openai.chat.completions.create({
       model: MODEL_NAME,
       messages: [
-        {
-          role: "system",
-          content: `你是一个知识图谱构建专家。你的核心原则是**向上抽象、向源收敛**：新实体应优先追溯到原始文本的核心主题和上层概念，而非发散到无关的细节方向。
-
-要求：
-1. 对实体进行详细解析（以 Markdown 格式，3-5段），解析中要体现该实体与原始文本主题的关联。
-2. 新实体数量 3~6 个，遵循 80/20 原则：约80%应为向源端收敛的上层抽象概念（如原始文本的核心议题、背景脉络、底层原理），约20%可为有意义的横向关联实体。
-3. 与已有实体建立关系时，必须使用提供的已有实体 id（不要自己编造），已有实体以 {id, name} 格式提供。
-4. 新实体的 id 使用英文 snake_case，不要与已有实体 id 重复。
-5. 新实体不要与已有实体重复（注意同义词判断），避免引入与原始文本主题无关的实体。
-5. suggestedExplorations 是用户可能感兴趣的下一步探索方向关键词，优先围绕原始文本的核心主题。
-
-严格按照以下 JSON 格式返回：
-{
-  "analysis": "对该实体的详细 Markdown 解析文本",
-  "newEntities": [
-    {
-      "id": "唯一标识符",
-      "name": "实体名称",
-      "type": "person|location|organization|event|concept|time|other",
-      "description": "一句话描述"
-    }
-  ],
-  "newRelations": [
-    {
-      "source": "实体id",
-      "target": "实体id",
-      "relation": "关系描述"
-    }
-  ],
-  "suggestedExplorations": ["建议进一步探索的实体关键词数组(3-5个)"]
-}`
-        },
-        {
-          role: "user",
-          content: `用户正在探索实体「${entity.name}」(id: ${entity.id})。\n\n原始上下文：${originalText}\n\n当前图谱中已有的实体（格式为 {id, name}）：${JSON.stringify(existingEntities)}\n\n请对该实体进行详细解析，并在必要时扩展该实体的知识图谱发现新的关联实体和关系。建立关系时，务必使用上面提供的已有实体 id。`
-        }
+        { role: "system", content: expandPrompt.system },
+        { role: "user", content: render(expandPrompt.user, {
+          entityName: entity.name,
+          entityId: entity.id,
+          originalText: originalText || "",
+          existingEntities: JSON.stringify(existingEntities),
+        }) }
       ],
       response_format: { type: "json_object" },
       stream: true,
