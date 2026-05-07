@@ -80,9 +80,8 @@ app.post("/api/analyze", async (req, res) => {
       return res.status(500).json({ error: "Invalid LLM response format" });
     }
     
-    // Further filter to valid ones
-    data.entities = data.entities.filter((e: any) => e && e.id && e.name);
-    data.relations = data.relations.filter((r: any) => r && r.source && r.target && r.relation);
+    data.entities = data.entities.filter(validEntity);
+    data.relations = data.relations.filter(validRelation);
 
     res.json(data);
   } catch (error) {
@@ -91,12 +90,18 @@ app.post("/api/analyze", async (req, res) => {
   }
 });
 
-// Extract partial "analysis" text from streaming JSON buffer
-function extractPartialAnalysis(buffer: string): string {
-  const startMatch = buffer.match(/"analysis"\s*:\s*"/);
-  if (!startMatch) return '';
+// Extract partial "analysis" text from streaming JSON buffer.
+// Caches the start offset so we don't re-scan on every chunk.
+let analysisStartOffset = -1;
 
-  let text = buffer.slice(startMatch.index! + startMatch[0].length);
+function extractPartialAnalysis(buffer: string): string {
+  if (analysisStartOffset === -1) {
+    const startMatch = buffer.match(/"analysis"\s*:\s*"/);
+    if (!startMatch) return '';
+    analysisStartOffset = startMatch.index! + startMatch[0].length;
+  }
+
+  let text = buffer.slice(analysisStartOffset);
 
   // Stop at the next JSON key boundary
   const endIdx = text.indexOf('","newEntities"');
@@ -111,6 +116,14 @@ function extractPartialAnalysis(buffer: string): string {
     .replace(/\\t/g, '\t')
     .replace(/\\r/g, '\r')
     .replace(/\\\\/g, '\\');
+}
+
+function validEntity(e: any): boolean {
+  return e && e.id && e.name;
+}
+
+function validRelation(r: any): boolean {
+  return r && r.source && r.target && r.relation;
 }
 
 app.post("/api/expand", async (req, res) => {
@@ -177,6 +190,7 @@ app.post("/api/expand", async (req, res) => {
 
     let buffer = '';
     let lastSentLength = 0;
+    analysisStartOffset = -1;
 
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta;
@@ -201,8 +215,8 @@ app.post("/api/expand", async (req, res) => {
       return;
     }
 
-    data.newEntities = data.newEntities.filter((e: any) => e && e.id && e.name);
-    data.newRelations = data.newRelations.filter((r: any) => r && r.source && r.target && r.relation);
+    data.newEntities = data.newEntities.filter(validEntity);
+    data.newRelations = data.newRelations.filter(validRelation);
 
     res.write(`data: ${JSON.stringify({
       type: 'done',

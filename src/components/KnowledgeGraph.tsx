@@ -1,6 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { GraphState, Entity } from '../types/index';
+import { getEdgeEndpointId } from '../lib/graphUtils';
+
+// Force simulation tuning
+const LINK_DISTANCE = 120;
+const CHARGE_STRENGTH = -400;
+const NEW_NODE_SEED_OFFSET = 80;
+const ZOOM_LABEL_HIDE = 0.6;
+const ZOOM_LABEL_DEGREE_THRESHOLD = 1.0;
+const LABEL_DEGREE_MIN = 3;
 
 interface KnowledgeGraphProps {
   data: GraphState;
@@ -14,6 +23,12 @@ function nodeRadius(degree: number): number {
 
 function truncateName(name: string): string {
   return name.length > 10 ? name.slice(0, 9) + '…' : name;
+}
+
+function getLabelOpacity(scale: number, degree: number): number {
+  if (scale < ZOOM_LABEL_HIDE) return 0;
+  if (scale < ZOOM_LABEL_DEGREE_THRESHOLD) return degree >= LABEL_DEGREE_MIN ? 1 : 0;
+  return 1;
 }
 
 export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: KnowledgeGraphProps) {
@@ -41,16 +56,8 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
         currentScale = event.transform.k;
         rootGroup.attr('transform', event.transform);
 
-        // Semantic zooming: hide/show labels based on scale
         rootGroup.selectAll<SVGTextElement, Entity>('.node-label')
-          .style('opacity', d => {
-            if (currentScale < 0.6) return 0;
-            if (currentScale < 1.0) {
-              const deg = degrees[d.id] || 0;
-              return deg >= 3 ? 1 : 0;
-            }
-            return 1;
-          });
+          .style('opacity', d => getLabelOpacity(currentScale, degrees[d.id] || 0));
       });
 
     svg.call(zoom);
@@ -70,13 +77,13 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
 
     // Seed new nodes near their parent
     for (const link of links) {
-      const sourceId = typeof link.source === 'string' ? link.source : (link.source as any).id;
-      const targetId = typeof link.target === 'string' ? link.target : (link.target as any).id;
+      const sourceId = getEdgeEndpointId(link.source);
+      const targetId = getEdgeEndpointId(link.target);
       const sourceNode = nodes.find(n => n.id === sourceId);
       const targetNode = nodes.find(n => n.id === targetId);
       if (sourceNode && targetNode && sourceNode.x != null && targetNode.x == null) {
-        targetNode.x = sourceNode.x! + (Math.random() - 0.5) * 80;
-        targetNode.y = sourceNode.y! + (Math.random() - 0.5) * 80;
+        targetNode.x = sourceNode.x! + (Math.random() - 0.5) * NEW_NODE_SEED_OFFSET;
+        targetNode.y = sourceNode.y! + (Math.random() - 0.5) * NEW_NODE_SEED_OFFSET;
       }
     }
 
@@ -89,8 +96,8 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
     });
 
     const simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id((d: any) => d.id).distance(120))
-      .force('charge', d3.forceManyBody().strength(-400))
+      .force('link', d3.forceLink(links).id((d: any) => d.id).distance(LINK_DISTANCE))
+      .force('charge', d3.forceManyBody().strength(CHARGE_STRENGTH))
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force('collide', d3.forceCollide().radius(d => nodeRadius(degrees[(d as any).id] || 0) + 3));
 
@@ -99,7 +106,6 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
     const linkGroup = rootGroup.append('g').attr('class', 'links');
     const nodeGroup = rootGroup.append('g').attr('class', 'nodes');
 
-    // Render links — thin, no arrows, light gray
     const link = linkGroup.selectAll('.link')
       .data(links)
       .enter().append('line')
@@ -123,7 +129,6 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
         onNodeClick(d as Entity);
       });
 
-    // Node circles — solid gray, no glow
     node.append('circle')
       .attr('class', 'node-circle')
       .attr('r', d => nodeRadius(degrees[d.id] || 0))
@@ -141,7 +146,6 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', '3,3');
 
-    // Node labels — to the right, clean sans-serif
     node.append('text')
       .attr('class', 'node-label')
       .attr('text-anchor', 'start')
@@ -152,7 +156,6 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
       .style('fill', '#333333')
       .text(d => truncateName(d.name));
 
-    // Tooltips with full name + description
     node.append('title').text(d => `${d.name}\n${d.description || ''}`);
 
     // --- Hover highlighting ---
@@ -162,8 +165,8 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
       neighborIds.add(hoveredId);
 
       links.forEach(l => {
-        const sid = typeof l.source === 'string' ? l.source : (l.source as any).id;
-        const tid = typeof l.target === 'string' ? l.target : (l.target as any).id;
+        const sid = getEdgeEndpointId(l.source);
+        const tid = getEdgeEndpointId(l.target);
         if (sid === hoveredId) neighborIds.add(tid);
         if (tid === hoveredId) neighborIds.add(sid);
       });
@@ -180,18 +183,18 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
 
       link.transition().duration(200)
         .attr('stroke', l => {
-          const sid = typeof l.source === 'string' ? l.source : (l.source as any).id;
-          const tid = typeof l.target === 'string' ? l.target : (l.target as any).id;
+          const sid = getEdgeEndpointId(l.source);
+          const tid = getEdgeEndpointId(l.target);
           return (sid === hoveredId || tid === hoveredId) ? '#333333' : '#e8e8e8';
         })
         .attr('stroke-width', l => {
-          const sid = typeof l.source === 'string' ? l.source : (l.source as any).id;
-          const tid = typeof l.target === 'string' ? l.target : (l.target as any).id;
+          const sid = getEdgeEndpointId(l.source);
+          const tid = getEdgeEndpointId(l.target);
           return (sid === hoveredId || tid === hoveredId) ? 1.5 : 0.5;
         })
         .style('opacity', l => {
-          const sid = typeof l.source === 'string' ? l.source : (l.source as any).id;
-          const tid = typeof l.target === 'string' ? l.target : (l.target as any).id;
+          const sid = getEdgeEndpointId(l.source);
+          const tid = getEdgeEndpointId(l.target);
           return (sid === hoveredId || tid === hoveredId) ? 1 : 0.08;
         });
     });
@@ -204,13 +207,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
 
       node.select<SVGTextElement>('.node-label')
         .transition().duration(300)
-        .style('opacity', n => {
-          if (currentScale < 0.6) return 0;
-          if (currentScale < 1.0) {
-            return (degrees[n.id] || 0) >= 3 ? 1 : 0;
-          }
-          return 1;
-        });
+        .style('opacity', n => getLabelOpacity(currentScale, degrees[n.id] || 0));
 
       link.transition().duration(300)
         .attr('stroke', '#d0d0d0')
@@ -218,37 +215,19 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
         .style('opacity', 1);
     });
 
-    // --- Simulation tick ---
     simulation.on('tick', () => {
-      link
-        .attr('x1', d => {
-          const dx = d.target.x - d.source.x;
-          const dy = d.target.y - d.source.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const sourceR = nodeRadius(degrees[d.source.id] || 0);
-          return d.source.x + (dx / dist) * sourceR;
-        })
-        .attr('y1', d => {
-          const dx = d.target.x - d.source.x;
-          const dy = d.target.y - d.source.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const sourceR = nodeRadius(degrees[d.source.id] || 0);
-          return d.source.y + (dy / dist) * sourceR;
-        })
-        .attr('x2', d => {
-          const dx = d.target.x - d.source.x;
-          const dy = d.target.y - d.source.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const targetR = nodeRadius(degrees[d.target.id] || 0);
-          return d.target.x - (dx / dist) * targetR;
-        })
-        .attr('y2', d => {
-          const dx = d.target.x - d.source.x;
-          const dy = d.target.y - d.source.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const targetR = nodeRadius(degrees[d.target.id] || 0);
-          return d.target.y - (dy / dist) * targetR;
-        });
+      link.each(function(d) {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const sourceR = nodeRadius(degrees[getEdgeEndpointId(d.source)] || 0);
+        const targetR = nodeRadius(degrees[getEdgeEndpointId(d.target)] || 0);
+        d3.select(this)
+          .attr('x1', d.source.x + (dx / dist) * sourceR)
+          .attr('y1', d.source.y + (dy / dist) * sourceR)
+          .attr('x2', d.target.x - (dx / dist) * targetR)
+          .attr('y2', d.target.y - (dy / dist) * targetR);
+      });
 
       node.attr('transform', d => `translate(${d.x},${d.y})`);
     });

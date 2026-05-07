@@ -1,5 +1,13 @@
 import { GraphState, Entity, Relation } from '../types';
 
+export function getEdgeEndpointId(ref: string | { id: string }): string {
+  return typeof ref === 'string' ? ref : ref.id;
+}
+
+export function slugify(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, '_');
+}
+
 export function mergeGraphData(
   currentGraph: GraphState,
   newNodes: Partial<Entity>[],
@@ -8,9 +16,8 @@ export function mergeGraphData(
 ): GraphState {
   const nodeMap = new Map(currentGraph.nodes.map(n => [n.id, n]));
   const edgeSet = new Set(currentGraph.edges.map(e => {
-    // Handling cases where edge source/target are objects (if d3 modifies them)
-    const sourceId = typeof e.source === 'object' ? (e.source as any).id : e.source;
-    const targetId = typeof e.target === 'object' ? (e.target as any).id : e.target;
+    const sourceId = getEdgeEndpointId(e.source);
+    const targetId = getEdgeEndpointId(e.target);
     return `${sourceId}-${targetId}-${e.relation}`;
   }));
 
@@ -29,9 +36,9 @@ export function mergeGraphData(
 
   const updatedEdges = [...currentGraph.edges];
   for (const e of newEdges) {
-    const sourceId = typeof e.source === 'object' ? (e.source as any).id : e.source;
-    const targetId = typeof e.target === 'object' ? (e.target as any).id : e.target;
-    
+    const sourceId = getEdgeEndpointId(e.source);
+    const targetId = getEdgeEndpointId(e.target);
+
     // Make sure nodes exist
     if (nodeMap.has(sourceId) && nodeMap.has(targetId)) {
         const key = `${sourceId}-${targetId}-${e.relation}`;

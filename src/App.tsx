@@ -3,7 +3,7 @@ import TextInput from './components/TextInput';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import AnalysisPanel from './components/AnalysisPanel';
 import { GraphState, PanelState, Entity } from './types';
-import { mergeGraphData } from './lib/graphUtils';
+import { mergeGraphData, slugify } from './lib/graphUtils';
 
 export default function App() {
   const [leftWidth, setLeftWidth] = useState(55); // percentage
@@ -29,7 +29,10 @@ export default function App() {
     isLoading: false,
   });
 
-  const selectedEntity = panelState.selectedEntityId 
+  const selectedEntityIdRef = useRef<string | null>(null);
+  selectedEntityIdRef.current = panelState.selectedEntityId;
+
+  const selectedEntity = panelState.selectedEntityId
     ? graphData.nodes.find(n => n.id === panelState.selectedEntityId)
     : null;
 
@@ -56,12 +59,15 @@ export default function App() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  function createAbortController(): AbortController {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
+    return ac;
+  }
+
   const handleAnalyze = async (text: string) => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    const abortController = createAbortController();
 
     setOriginalText(text);
     setPanelState(prev => ({ ...prev, isLoading: true, selectedEntityId: null }));
@@ -99,11 +105,9 @@ export default function App() {
   // useCallback prevents new function reference on every render,
   // which would trigger KnowledgeGraph useEffect to rebuild D3 simulation
   const handleNodeClick = useCallback(async (entity: Entity) => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    if (entity.id === selectedEntityIdRef.current && entity.expanded) return;
+
+    const abortController = createAbortController();
 
     setPanelState(prev => ({ ...prev, selectedEntityId: entity.id, isLoading: true }));
 
@@ -190,7 +194,7 @@ export default function App() {
       handleNodeClick(existingNode);
     } else {
       // Create temporary node
-      const tempId = tagName.toLowerCase().replace(/\\s+/g, '_');
+      const tempId = slugify(tagName);
       const newEntity: Entity = {
         id: tempId,
         name: tagName,
@@ -215,8 +219,8 @@ export default function App() {
   };
 
   const handleTextSelect = useCallback((selectedText: string) => {
-    const tempId = 'user_' + selectedText.toLowerCase().replace(/\s+/g, '_').slice(0, 40);
-    const currentSelectedId = panelState.selectedEntityId;
+    const tempId = ('user_' + slugify(selectedText)).slice(0, 44);
+    const currentSelectedId = selectedEntityIdRef.current;
     const parentNode = currentSelectedId
       ? graphDataRef.current.nodes.find(n => n.id === currentSelectedId)
       : null;
@@ -238,7 +242,7 @@ export default function App() {
 
     setGraphData(prev => mergeGraphData(prev, [newEntity], tempRelations, newEntity.depth));
     handleNodeClick(newEntity);
-  }, [panelState.selectedEntityId, handleNodeClick, setGraphData]);
+  }, [handleNodeClick, setGraphData]);
 
   return (
     <div

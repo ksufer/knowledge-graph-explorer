@@ -1,17 +1,18 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
-import { PanelState } from '../types';
+import { PanelState, EntityType } from '../types';
+import { slugify } from '../lib/graphUtils';
 
 interface AnalysisPanelProps {
   state: PanelState;
   entityName?: string;
-  entityType?: string;
+  entityType?: EntityType;
   onTagClick: (tagName: string) => void;
   onTextSelect?: (text: string) => void;
 }
 
-const typeColors: Record<string, string> = {
+const typeColors: Record<EntityType, string> = {
   person: 'bg-blue-50 text-blue-600 border-blue-200',
   location: 'bg-green-50 text-green-600 border-green-200',
   organization: 'bg-orange-50 text-orange-600 border-orange-200',
@@ -109,7 +110,7 @@ export default function AnalysisPanel({ state, entityName, entityType, onTagClic
               Overview
             </span>
           )}
-          <span className="text-[10px] text-gray-400 font-mono">ID: {entityName ? entityName.toLowerCase().replace(/\s+/g, '_') : 'summary'}</span>
+          <span className="text-[10px] text-gray-400 font-mono">ID: {entityName ? slugify(entityName) : 'summary'}</span>
         </div>
         <h2 className="text-2xl font-bold tracking-tight text-gray-900">
           {entityName || "图谱摘要"}
