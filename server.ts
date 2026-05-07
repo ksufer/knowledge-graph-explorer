@@ -61,6 +61,13 @@ app.post("/api/analyze", async (req, res) => {
 
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta;
+
+      // Capture reasoning/thinking tokens (DeepSeek R1, etc.)
+      const reasoning = (delta as any)?.reasoning_content;
+      if (reasoning) {
+        res.write(`data: ${JSON.stringify({ type: 'thinking', text: reasoning })}\n\n`);
+      }
+
       const content = delta?.content;
       if (content) {
         buffer += content;
@@ -205,7 +212,6 @@ app.post("/api/expand", async (req, res) => {
           existingEntities: JSON.stringify(existingEntities),
         }) }
       ],
-      response_format: { type: "json_object" },
       stream: true,
     }, { timeout: 30000 });
 
@@ -215,7 +221,12 @@ app.post("/api/expand", async (req, res) => {
 
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta;
-      // Skip reasoning-only chunks (DeepSeek sends reasoning_content before content)
+
+      const reasoning = (delta as any)?.reasoning_content;
+      if (reasoning) {
+        res.write(`data: ${JSON.stringify({ type: 'thinking', text: reasoning })}\n\n`);
+      }
+
       const content = delta?.content;
       if (content) {
         buffer += content;

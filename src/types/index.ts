@@ -23,6 +23,7 @@ export interface GraphState {
 export interface PanelState {
   selectedEntityId: string | null;
   analysisContent: string;
+  thinkingContent: string;
   suggestedExplorations: string[];
   isLoading: boolean;
 }

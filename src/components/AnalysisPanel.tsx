@@ -62,22 +62,6 @@ export default function AnalysisPanel({ state, entityName, entityType, onTagClic
     if (selectionMenu) setSelectionMenu(null);
   }, [selectionMenu]);
 
-  // Only show skeleton when loading AND no content has arrived yet
-  if (state.isLoading && !state.analysisContent) {
-    return (
-      <div className="flex flex-col h-full bg-white p-6 animate-pulse" style={chineseFont}>
-        <div className="h-8 w-1/3 bg-gray-200 rounded mb-4"></div>
-        <div className="h-4 w-1/4 bg-gray-200 rounded mb-8"></div>
-
-        <div className="space-y-4">
-          <div className="h-4 bg-gray-200 rounded w-full"></div>
-          <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-          <div className="h-4 bg-gray-200 rounded w-4/6"></div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div ref={panelRef} className="flex flex-col h-full bg-white relative select-auto" style={chineseFont}>
       {/* Floating "Add to Graph" button — portal to body to escape backdrop-blur containing block */}
@@ -119,9 +103,38 @@ export default function AnalysisPanel({ state, entityName, entityType, onTagClic
         </h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 select-auto" onScroll={handleContentScroll}>
-        {state.analysisContent ? (
+      <div className="flex-1 overflow-y-auto p-6 select-auto" onScroll={handleContentScroll}>
+        {state.isLoading && !state.analysisContent ? (
+          <div className="h-full flex flex-col items-center justify-center relative">
+            <div className="flex items-center gap-1.5">
+              {[0, 1, 2].map(i => (
+                <span
+                  key={i}
+                  className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                  style={{ animationDelay: `${i * 0.15}s`, animationDuration: '0.8s' }}
+                />
+              ))}
+            </div>
+            <p className="text-sm text-gray-500 mt-5">
+              {entityName ? `正在深度解析「${entityName}」…` : '正在分析文本，构建知识图谱…'}
+            </p>
+            {state.thinkingContent && (
+              <p className="absolute bottom-6 left-6 right-6 max-w-lg mx-auto text-xs text-gray-400/60 italic leading-relaxed whitespace-pre-wrap text-center">
+                {state.thinkingContent.length > 300
+                  ? '…' + state.thinkingContent.slice(-300)
+                  : state.thinkingContent}
+              </p>
+            )}
+          </div>
+        ) : state.analysisContent ? (
           <div>
+            {state.thinkingContent && (
+              <p className="mb-4 max-h-16 overflow-hidden text-xs text-gray-400/60 italic leading-relaxed whitespace-pre-wrap border-l-2 border-gray-200 pl-3">
+                {state.thinkingContent.length > 300
+                  ? '…' + state.thinkingContent.slice(-300)
+                  : state.thinkingContent}
+              </p>
+            )}
             <div className="text-[15px] text-gray-700 leading-relaxed select-auto prose max-w-none
                             prose-headings:font-bold prose-headings:text-gray-900 prose-headings:tracking-tight
                             prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-h4:text-sm

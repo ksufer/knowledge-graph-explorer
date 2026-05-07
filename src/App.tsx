@@ -25,6 +25,7 @@ export default function App() {
   const [panelState, setPanelState] = useState<PanelState>({
     selectedEntityId: null,
     analysisContent: '',
+    thinkingContent: '',
     suggestedExplorations: [],
     isLoading: false,
   });
@@ -74,7 +75,7 @@ export default function App() {
 
     setOriginalText(text);
     analysisCacheRef.current.clear();
-    setPanelState(prev => ({ ...prev, isLoading: true, selectedEntityId: null }));
+    setPanelState(prev => ({ ...prev, isLoading: true, selectedEntityId: null, thinkingContent: '' }));
 
     try {
       const res = await fetch('/api/analyze', {
@@ -111,6 +112,11 @@ export default function App() {
               ...prev,
               analysisContent: payload.text
             }));
+          } else if (payload.type === 'thinking') {
+            setPanelState(prev => ({
+              ...prev,
+              thinkingContent: prev.thinkingContent + payload.text
+            }));
           } else if (payload.type === 'done') {
             setGraphData({
               nodes: (payload.entities || []).map((e: any) => ({ ...e, depth: 0, expanded: false })),
@@ -120,6 +126,7 @@ export default function App() {
             setPanelState({
               selectedEntityId: null,
               analysisContent: payload.summary || '生成图谱完成。',
+              thinkingContent: '',
               suggestedExplorations: [],
               isLoading: false
             });
@@ -131,7 +138,7 @@ export default function App() {
     } catch (error: any) {
       if (error.name === 'AbortError') return;
       console.error(error);
-      setPanelState(prev => ({ ...prev, isLoading: false, analysisContent: '分析出错，请重试。' }));
+      setPanelState(prev => ({ ...prev, isLoading: false, thinkingContent: '', analysisContent: '分析出错，请重试。' }));
     }
   };
 
@@ -147,6 +154,7 @@ export default function App() {
       setPanelState({
         selectedEntityId: entity.id,
         analysisContent: cached.analysisContent,
+        thinkingContent: '',
         suggestedExplorations: cached.suggestedExplorations,
         isLoading: false,
       });
@@ -155,7 +163,7 @@ export default function App() {
 
     const abortController = createAbortController();
 
-    setPanelState(prev => ({ ...prev, selectedEntityId: entity.id, isLoading: true }));
+    setPanelState(prev => ({ ...prev, selectedEntityId: entity.id, isLoading: true, thinkingContent: '' }));
 
     // Update node to expanded locally just for UI immediate feedback
     setGraphData(prev => ({
@@ -207,6 +215,11 @@ export default function App() {
               ...prev,
               analysisContent: payload.text
             }));
+          } else if (payload.type === 'thinking') {
+            setPanelState(prev => ({
+              ...prev,
+              thinkingContent: prev.thinkingContent + payload.text
+            }));
           } else if (payload.type === 'done') {
             setGraphData(prev => mergeGraphData(prev, payload.newEntities || [], payload.newRelations || [], entity.depth + 1));
 
@@ -220,6 +233,7 @@ export default function App() {
             setPanelState(prev => ({
               ...prev,
               analysisContent: finalAnalysis,
+              thinkingContent: '',
               suggestedExplorations: finalSuggestions,
               isLoading: false
             }));
@@ -231,7 +245,7 @@ export default function App() {
     } catch (error: any) {
       if (error.name === 'AbortError') return;
       console.error(error);
-      setPanelState(prev => ({ ...prev, isLoading: false, analysisContent: '扩展节点出错，请重试。' }));
+      setPanelState(prev => ({ ...prev, isLoading: false, thinkingContent: '', analysisContent: '扩展节点出错，请重试。' }));
       // Rollback expanded state on failure
       setGraphData(prev => ({
         ...prev,
