@@ -32,6 +32,9 @@ export default function App() {
   const selectedEntityIdRef = useRef<string | null>(null);
   selectedEntityIdRef.current = panelState.selectedEntityId;
 
+  // Cache expanded node analysis results — re-click restores from cache, no API call
+  const analysisCacheRef = useRef<Map<string, { analysisContent: string; suggestedExplorations: string[] }>>(new Map());
+
   const selectedEntity = panelState.selectedEntityId
     ? graphData.nodes.find(n => n.id === panelState.selectedEntityId)
     : null;
@@ -70,6 +73,7 @@ export default function App() {
     const abortController = createAbortController();
 
     setOriginalText(text);
+    analysisCacheRef.current.clear();
     setPanelState(prev => ({ ...prev, isLoading: true, selectedEntityId: null }));
     
     try {
@@ -105,7 +109,20 @@ export default function App() {
   // useCallback prevents new function reference on every render,
   // which would trigger KnowledgeGraph useEffect to rebuild D3 simulation
   const handleNodeClick = useCallback(async (entity: Entity) => {
+    // Already selected and expanded — no-op
     if (entity.id === selectedEntityIdRef.current && entity.expanded) return;
+
+    // Previously expanded — restore cached result, no API call
+    const cached = analysisCacheRef.current.get(entity.id);
+    if (cached) {
+      setPanelState({
+        selectedEntityId: entity.id,
+        analysisContent: cached.analysisContent,
+        suggestedExplorations: cached.suggestedExplorations,
+        isLoading: false,
+      });
+      return;
+    }
 
     const abortController = createAbortController();
 
@@ -164,10 +181,17 @@ export default function App() {
           } else if (payload.type === 'done') {
             setGraphData(prev => mergeGraphData(prev, payload.newEntities || [], payload.newRelations || [], entity.depth + 1));
 
+            const finalAnalysis = payload.analysis || '';
+            const finalSuggestions = payload.suggestedExplorations || [];
+            analysisCacheRef.current.set(entity.id, {
+              analysisContent: finalAnalysis,
+              suggestedExplorations: finalSuggestions,
+            });
+
             setPanelState(prev => ({
               ...prev,
-              analysisContent: payload.analysis || '',
-              suggestedExplorations: payload.suggestedExplorations || [],
+              analysisContent: finalAnalysis,
+              suggestedExplorations: finalSuggestions,
               isLoading: false
             }));
           } else if (payload.type === 'error') {

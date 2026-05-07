@@ -11,6 +11,25 @@ const ZOOM_LABEL_HIDE = 0.6;
 const ZOOM_LABEL_DEGREE_THRESHOLD = 1.0;
 const LABEL_DEGREE_MIN = 3;
 
+// Morandi palette — muted, low-saturation colors keyed by entity type
+const NODE_COLORS: Record<string, string> = {
+  domain:       '#8B9AAA',  // muted dusty blue
+  problem:      '#C4A5A5',  // muted rose
+  concept:      '#B0A5B6',  // muted lavender
+  prerequisite: '#C4BAA5',  // warm sand
+  component:    '#A5B0A8',  // muted sage
+  mechanism:    '#9DACBF',  // powder blue
+  application:  '#A3B5A8',  // muted celadon
+  contrast:     '#C4AFA5',  // muted peach
+  other:        '#AEACA8',  // warm gray
+};
+const NODE_COLOR_DEFAULT = '#AEACA8';
+const NODE_COLOR_SELECTED = '#5C6370';   // dark slate — consistent accent for selection
+const NODE_COLOR_DIMMED = '#E5E2DF';     // barely-there warm gray for non-neighbor nodes
+const LINK_COLOR_NORMAL = '#CFCCC8';      // soft warm gray
+const LINK_COLOR_HOVER = '#9D9A96';       // darker warm gray for active links
+const LINK_COLOR_DIMMED = '#E8E5E3';      // near-invisible for dimmed links
+
 interface KnowledgeGraphProps {
   data: GraphState;
   selectedEntityId: string | null;
@@ -29,6 +48,10 @@ function getLabelOpacity(scale: number, degree: number): number {
   if (scale < ZOOM_LABEL_HIDE) return 0;
   if (scale < ZOOM_LABEL_DEGREE_THRESHOLD) return degree >= LABEL_DEGREE_MIN ? 1 : 0;
   return 1;
+}
+
+function nodeColor(type: string): string {
+  return NODE_COLORS[type] || NODE_COLOR_DEFAULT;
 }
 
 export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: KnowledgeGraphProps) {
@@ -110,7 +133,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
       .data(links)
       .enter().append('line')
       .attr('class', 'link')
-      .attr('stroke', '#d0d0d0')
+      .attr('stroke', LINK_COLOR_NORMAL)
       .attr('stroke-width', 1);
 
     // Render nodes
@@ -132,7 +155,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
     node.append('circle')
       .attr('class', 'node-circle')
       .attr('r', d => nodeRadius(degrees[d.id] || 0))
-      .attr('fill', d => d.id === selectedEntityId ? '#333333' : '#666666')
+      .attr('fill', d => d.id === selectedEntityId ? NODE_COLOR_SELECTED : nodeColor(d.type))
       .style('opacity', 0)
       .transition()
       .duration(600)
@@ -142,7 +165,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
     node.filter(d => d.expanded).append('circle')
       .attr('r', d => nodeRadius(degrees[d.id] || 0) + 4)
       .attr('fill', 'none')
-      .attr('stroke', '#999999')
+      .attr('stroke', d => nodeColor(d.type))
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', '3,3');
 
@@ -153,7 +176,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
       .attr('dy', 4)
       .style('font-family', 'Inter, Roboto, system-ui, sans-serif')
       .style('font-size', '11px')
-      .style('fill', '#333333')
+      .style('fill', '#4A4A4A')
       .text(d => truncateName(d.name));
 
     node.append('title').text(d => `${d.name}\n${d.description || ''}`);
@@ -174,7 +197,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
       // Dim all nodes not in the local network
       node.select<SVGCircleElement>('.node-circle')
         .transition().duration(200)
-        .attr('fill', n => neighborIds.has(n.id) ? '#333333' : '#cccccc')
+        .attr('fill', n => neighborIds.has(n.id) ? nodeColor(n.type) : NODE_COLOR_DIMMED)
         .style('opacity', n => neighborIds.has(n.id) ? 1 : 0.15);
 
       node.select<SVGTextElement>('.node-label')
@@ -185,7 +208,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
         .attr('stroke', l => {
           const sid = getEdgeEndpointId(l.source);
           const tid = getEdgeEndpointId(l.target);
-          return (sid === hoveredId || tid === hoveredId) ? '#333333' : '#e8e8e8';
+          return (sid === hoveredId || tid === hoveredId) ? LINK_COLOR_HOVER : LINK_COLOR_DIMMED;
         })
         .attr('stroke-width', l => {
           const sid = getEdgeEndpointId(l.source);
@@ -202,7 +225,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
     node.on('mouseleave', function() {
       node.select<SVGCircleElement>('.node-circle')
         .transition().duration(300)
-        .attr('fill', n => n.id === selectedEntityId ? '#333333' : '#666666')
+        .attr('fill', n => n.id === selectedEntityId ? NODE_COLOR_SELECTED : nodeColor(n.type))
         .style('opacity', 1);
 
       node.select<SVGTextElement>('.node-label')
@@ -210,7 +233,7 @@ export default function KnowledgeGraph({ data, selectedEntityId, onNodeClick }: 
         .style('opacity', n => getLabelOpacity(currentScale, degrees[n.id] || 0));
 
       link.transition().duration(300)
-        .attr('stroke', '#d0d0d0')
+        .attr('stroke', LINK_COLOR_NORMAL)
         .attr('stroke-width', 1)
         .style('opacity', 1);
     });

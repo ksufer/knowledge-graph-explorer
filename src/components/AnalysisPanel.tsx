@@ -13,12 +13,14 @@ interface AnalysisPanelProps {
 }
 
 const typeColors: Record<EntityType, string> = {
-  person: 'bg-blue-50 text-blue-600 border-blue-200',
-  location: 'bg-green-50 text-green-600 border-green-200',
-  organization: 'bg-orange-50 text-orange-600 border-orange-200',
-  event: 'bg-red-50 text-red-600 border-red-200',
+  domain: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  problem: 'bg-red-50 text-red-600 border-red-200',
   concept: 'bg-purple-50 text-purple-600 border-purple-200',
-  time: 'bg-gray-100 text-gray-500 border-gray-200',
+  prerequisite: 'bg-amber-50 text-amber-700 border-amber-200',
+  component: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+  mechanism: 'bg-blue-50 text-blue-600 border-blue-200',
+  application: 'bg-green-50 text-green-600 border-green-200',
+  contrast: 'bg-orange-50 text-orange-600 border-orange-200',
   other: 'bg-gray-50 text-gray-500 border-gray-200'
 };
 

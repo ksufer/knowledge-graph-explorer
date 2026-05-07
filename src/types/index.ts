@@ -1,4 +1,4 @@
-export type EntityType = 'person' | 'location' | 'organization' | 'event' | 'concept' | 'time' | 'other';
+export type EntityType = 'domain' | 'problem' | 'concept' | 'prerequisite' | 'component' | 'mechanism' | 'application' | 'contrast' | 'other';
 
 export interface Entity {
   id: string;
