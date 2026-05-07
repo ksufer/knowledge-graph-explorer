@@ -1,6 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { PanelState, EntityType } from '../types';
 import { slugify } from '../lib/graphUtils';
 
@@ -153,7 +156,7 @@ export default function AnalysisPanel({ state, entityName, entityType, onTagClic
                             prose-td:border prose-td:border-gray-200 prose-td:px-3 prose-td:py-2 prose-td:text-sm
                             prose-hr:border-gray-200
                             prose-img:rounded-lg">
-              <ReactMarkdown>{state.analysisContent}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{state.analysisContent}</ReactMarkdown>
             </div>
             {state.isLoading && (
               <span className="inline-block w-2.5 h-5 bg-blue-500 animate-pulse rounded-sm ml-0.5 align-text-bottom" />

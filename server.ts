@@ -5,13 +5,9 @@ import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { loadPrompt, render } from "./prompts/loader";
+import { matchProvider, PROVIDER_PRESETS, type ProviderPreset } from "./presets";
 
 dotenv.config();
-
-if (!process.env.OPENAI_API_KEY) {
-  console.error("OPENAI_API_KEY is not set. Exiting.");
-  process.exit(1);
-}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,47 +17,130 @@ const PORT = 3000;
 
 app.use(express.json());
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL || undefined,
-});
+const defaultModel = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
+const initialProvider = matchProvider(defaultModel);
+const initialDefaults: Partial<ProviderPreset["defaults"]> = initialProvider ? PROVIDER_PRESETS[initialProvider].defaults : {};
 
-// Mutable model config — adjustable at runtime via /api/settings
 const modelConfig = {
-  model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
-  max_tokens: 32768,
-  temperature: 0.7,
-  top_p: 0.8,
-  presence_penalty: 1.5,
+  api_key: process.env.OPENAI_API_KEY || "",
+  base_url: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  model: defaultModel,
+  max_tokens: initialDefaults.max_tokens || 32768,
+  temperature: initialDefaults.temperature ?? 0.7,
+  top_p: initialDefaults.top_p ?? 0.8,
+  presence_penalty: initialDefaults.presence_penalty ?? 1.5,
   top_k: 20,
-  enable_thinking: false,
+  enable_thinking: initialDefaults.enable_thinking ?? false,
+  reasoning_effort: (initialDefaults.reasoning_effort || "high") as "high" | "max",
 };
 
+let cachedClient: OpenAI | null = null;
+let clientConfigKey = "";
+
+function getClient() {
+  const key = `${modelConfig.api_key}|${modelConfig.base_url}`;
+  if (!cachedClient || clientConfigKey !== key) {
+    if (!modelConfig.api_key) throw new Error("API Key 未设置");
+    cachedClient = new OpenAI({
+      apiKey: modelConfig.api_key,
+      baseURL: modelConfig.base_url || undefined,
+    });
+    clientConfigKey = key;
+  }
+  return cachedClient;
+}
+
 function buildRequestOptions() {
+  const provider = matchProvider(modelConfig.model);
+  const isDeepSeek = provider === "deepseek";
+  const isQwen = provider === "qwen";
+
   const extra: Record<string, any> = { top_k: modelConfig.top_k };
-  if (!modelConfig.enable_thinking) {
+
+  if (isQwen && !modelConfig.enable_thinking) {
     extra.chat_template_kwargs = { enable_thinking: false };
   }
-  return {
+
+  const opts: any = {
     model: modelConfig.model,
     max_tokens: modelConfig.max_tokens,
-    temperature: modelConfig.temperature,
-    top_p: modelConfig.top_p,
-    presence_penalty: modelConfig.presence_penalty,
     extra_body: extra,
   };
+
+  // DeepSeek thinking must be at top level, not in extra_body (tested 2026-05)
+  if (isDeepSeek) {
+    opts.thinking = { type: modelConfig.enable_thinking ? "enabled" : "disabled" };
+  }
+
+  if (!(isDeepSeek && modelConfig.enable_thinking)) {
+    opts.temperature = modelConfig.temperature;
+    opts.top_p = modelConfig.top_p;
+    opts.presence_penalty = modelConfig.presence_penalty;
+  }
+
+  if (isDeepSeek && modelConfig.enable_thinking) {
+    opts.reasoning_effort = modelConfig.reasoning_effort;
+  }
+
+  return opts;
+}
+
+function settingsResponse() {
+  const provider = matchProvider(modelConfig.model);
+  const hiddenParams = provider ? PROVIDER_PRESETS[provider].hiddenParams : [];
+  return { ...modelConfig, api_key: modelConfig.api_key ? "***" : "", provider, hiddenParams };
 }
 
 app.get("/api/settings", (_req, res) => {
-  res.json(modelConfig);
+  res.json(settingsResponse());
 });
 
 app.post("/api/settings", (req, res) => {
   const updates = req.body;
-  for (const key of Object.keys(modelConfig)) {
-    if (key in updates) (modelConfig as any)[key] = updates[key];
+
+  if (updates.model && updates.model !== modelConfig.model) {
+    const newProvider = matchProvider(updates.model);
+    if (newProvider) {
+      const preset = PROVIDER_PRESETS[newProvider].defaults;
+      Object.assign(modelConfig, preset, { model: updates.model, top_k: modelConfig.top_k });
+    }
   }
-  res.json(modelConfig);
+
+  for (const key of Object.keys(modelConfig)) {
+    if (key in updates) {
+      const val = updates[key];
+      if (key === "api_key" && (val === "***" || !val)) continue;
+      if (key === "model" && updates.model) continue;
+      (modelConfig as any)[key] = val;
+    }
+  }
+
+  res.json(settingsResponse());
+});
+
+app.post("/api/settings/test", async (_req, res) => {
+  try {
+    const client = getClient();
+    const response = await client.chat.completions.create({
+      model: modelConfig.model,
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 1,
+    }, { timeout: 15000 });
+    res.json({ ok: true, model: response.model });
+  } catch (error: any) {
+    res.json({ ok: false, error: error?.message || String(error) });
+  }
+});
+
+app.get("/api/models", async (_req, res) => {
+  try {
+    const client = getClient();
+    const response = await client.models.list();
+    const models = response.data.map(m => m.id).sort();
+    res.json({ ok: true, models });
+  } catch (error: any) {
+    res.json({ ok: false, error: error?.message || String(error) });
+  }
 });
 
 app.post("/api/analyze", async (req, res) => {
@@ -83,14 +162,14 @@ app.post("/api/analyze", async (req, res) => {
 
     const analyzePrompt = loadPrompt("analyze");
 
-    const stream = await openai.chat.completions.create({
+    const stream = await getClient().chat.completions.create({
       ...buildRequestOptions(),
       messages: [
         { role: "system", content: analyzePrompt.system },
         { role: "user", content: render(analyzePrompt.user, { text }) }
       ],
       stream: true,
-    }, { timeout: 120000 });
+    } as any, { timeout: 120000 }) as any;
 
     let buffer = '';
     let lastSentLength = 0;
@@ -238,7 +317,7 @@ app.post("/api/expand", async (req, res) => {
 
     const expandPrompt = loadPrompt("expand");
 
-    const stream = await openai.chat.completions.create({
+    const stream = await getClient().chat.completions.create({
       ...buildRequestOptions(),
       messages: [
         { role: "system", content: expandPrompt.system },
@@ -250,7 +329,7 @@ app.post("/api/expand", async (req, res) => {
         }) }
       ],
       stream: true,
-    }, { timeout: 120000 });
+    } as any, { timeout: 120000 }) as any;
 
     let buffer = '';
     let lastSentLength = 0;
