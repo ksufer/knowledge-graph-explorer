@@ -1,12 +1,15 @@
 import React, { useState, useRef, useCallback } from 'react';
+import { Settings } from 'lucide-react';
 import TextInput from './components/TextInput';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import AnalysisPanel from './components/AnalysisPanel';
+import SettingsPanel from './components/SettingsPanel';
 import { GraphState, PanelState, Entity } from './types';
 import { mergeGraphData, slugify } from './lib/graphUtils';
 
 export default function App() {
   const [leftWidth, setLeftWidth] = useState(55); // percentage
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const isDraggingRef = useRef(false);
 
   const [originalText, setOriginalText] = useState('');
@@ -324,6 +327,13 @@ export default function App() {
           <span>Nodes: {graphData.nodes.length}</span>
           <span>Edges: {graphData.edges.length}</span>
           <span>API: Healthy</span>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="ml-1 p-0.5 rounded hover:bg-gray-200 transition-colors"
+            title="模型设置"
+          >
+            <Settings className="w-3 h-3 text-gray-400 hover:text-gray-600" />
+          </button>
         </div>
       </header>
 
@@ -379,6 +389,8 @@ export default function App() {
           />
         </div>
       </main>
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {/* Footer Status Bar */}
       <footer className="shrink-0 h-6 bg-gray-100 border-t border-gray-200 px-4 flex items-center justify-between">

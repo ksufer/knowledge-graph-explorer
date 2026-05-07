@@ -21,11 +21,48 @@ const PORT = 3000;
 
 app.use(express.json());
 
-const openai = new OpenAI({ 
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: process.env.OPENAI_BASE_URL || undefined,
 });
-const MODEL_NAME = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
+
+// Mutable model config — adjustable at runtime via /api/settings
+const modelConfig = {
+  model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
+  max_tokens: 32768,
+  temperature: 0.7,
+  top_p: 0.8,
+  presence_penalty: 1.5,
+  top_k: 20,
+  enable_thinking: false,
+};
+
+function buildRequestOptions() {
+  const extra: Record<string, any> = { top_k: modelConfig.top_k };
+  if (!modelConfig.enable_thinking) {
+    extra.chat_template_kwargs = { enable_thinking: false };
+  }
+  return {
+    model: modelConfig.model,
+    max_tokens: modelConfig.max_tokens,
+    temperature: modelConfig.temperature,
+    top_p: modelConfig.top_p,
+    presence_penalty: modelConfig.presence_penalty,
+    extra_body: extra,
+  };
+}
+
+app.get("/api/settings", (_req, res) => {
+  res.json(modelConfig);
+});
+
+app.post("/api/settings", (req, res) => {
+  const updates = req.body;
+  for (const key of Object.keys(modelConfig)) {
+    if (key in updates) (modelConfig as any)[key] = updates[key];
+  }
+  res.json(modelConfig);
+});
 
 app.post("/api/analyze", async (req, res) => {
   try {
@@ -47,13 +84,13 @@ app.post("/api/analyze", async (req, res) => {
     const analyzePrompt = loadPrompt("analyze");
 
     const stream = await openai.chat.completions.create({
-      model: MODEL_NAME,
+      ...buildRequestOptions(),
       messages: [
         { role: "system", content: analyzePrompt.system },
         { role: "user", content: render(analyzePrompt.user, { text }) }
       ],
       stream: true,
-    }, { timeout: 30000 });
+    }, { timeout: 120000 });
 
     let buffer = '';
     let lastSentLength = 0;
@@ -202,7 +239,7 @@ app.post("/api/expand", async (req, res) => {
     const expandPrompt = loadPrompt("expand");
 
     const stream = await openai.chat.completions.create({
-      model: MODEL_NAME,
+      ...buildRequestOptions(),
       messages: [
         { role: "system", content: expandPrompt.system },
         { role: "user", content: render(expandPrompt.user, {
@@ -213,7 +250,7 @@ app.post("/api/expand", async (req, res) => {
         }) }
       ],
       stream: true,
-    }, { timeout: 30000 });
+    }, { timeout: 120000 });
 
     let buffer = '';
     let lastSentLength = 0;
