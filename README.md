@@ -4,6 +4,8 @@ Visualize and explore relationships between entities hidden in text using AI-pow
 
 ![image-20260507001621271](./README.assets/image-20260507001621271.png)
 
+![](README.assets\PixPin_2026-05-07_20-32-36.gif)
+
 ## Features
 
 - **AI Entity Extraction** — Submit any text and let the LLM identify entities (domain, problem, concept, mechanism, etc.) and their relationships, streamed in real time via SSE
