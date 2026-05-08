@@ -51,3 +51,8 @@ export function loadPrompt(name: string): PromptSet {
 export function render(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
 }
+
+/** Escape user-provided text so {{...}} patterns are not treated as template variables. */
+export function escapeText(text: string): string {
+  return text.replace(/\{\{/g, '{\\{').replace(/\}\}/g, '}\\}');
+}

@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import dotenv from "dotenv";
-import { loadPrompt, render } from "./prompts/loader";
+import { loadPrompt, render, escapeText } from "./prompts/loader";
 import { matchProvider, PROVIDER_PRESETS, type ProviderPreset } from "./presets";
 
 dotenv.config();
@@ -166,14 +166,14 @@ app.post("/api/analyze", async (req, res) => {
       ...buildRequestOptions(),
       messages: [
         { role: "system", content: analyzePrompt.system },
-        { role: "user", content: render(analyzePrompt.user, { text }) }
+        { role: "user", content: render(analyzePrompt.user, { text: escapeText(text) }) }
       ],
       stream: true,
     } as any, { timeout: 120000 }) as any;
 
     let buffer = '';
     let lastSentLength = 0;
-    summaryStartOffset = -1;
+    let summaryStartOffset = -1;
 
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta;
@@ -187,7 +187,7 @@ app.post("/api/analyze", async (req, res) => {
       const content = delta?.content;
       if (content) {
         buffer += content;
-        const summary = extractPartialSummary(buffer);
+        const { text: summary } = extractPartialField(buffer, summaryStartOffset, 'summary', '","entities"');
         if (summary.length > lastSentLength) {
           lastSentLength = summary.length;
           res.write(`data: ${JSON.stringify({ type: 'chunk', text: summary })}\n\n`);
@@ -226,59 +226,31 @@ app.post("/api/analyze", async (req, res) => {
   }
 });
 
-// Extract partial "analysis" text from streaming JSON buffer.
-// Caches the start offset so we don't re-scan on every chunk.
-let analysisStartOffset = -1;
-
-function extractPartialAnalysis(buffer: string): string {
-  if (analysisStartOffset === -1) {
-    const startMatch = buffer.match(/"analysis"\s*:\s*"/);
-    if (!startMatch) return '';
-    analysisStartOffset = startMatch.index! + startMatch[0].length;
+// Extract partial JSON string field from streaming buffer.
+// Offset is passed in/out to avoid module-level globals (race condition under concurrent requests).
+function extractPartialField(buffer: string, offset: number, fieldName: string, endMarker: string): { text: string; offset: number } {
+  if (offset === -1) {
+    const startMatch = buffer.match(new RegExp(`"${fieldName}"\\s*:\\s*"`));
+    if (!startMatch) return { text: '', offset: -1 };
+    offset = startMatch.index! + startMatch[0].length;
   }
 
-  let text = buffer.slice(analysisStartOffset);
-
-  // Stop at the next JSON key boundary
-  const endIdx = text.indexOf('","newEntities"');
+  let text = buffer.slice(offset);
+  const endIdx = text.indexOf(endMarker);
   if (endIdx !== -1) {
     text = text.slice(0, endIdx);
   }
 
   // Unescape JSON string (order matters: quotes first, backslashes last)
-  return text
-    .replace(/\\"/g, '"')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\r/g, '\r')
-    .replace(/\\\\/g, '\\');
-}
-
-// Extract partial "summary" text from streaming JSON buffer.
-// Summary is the first field in the analyze response, so content arrives early.
-let summaryStartOffset = -1;
-
-function extractPartialSummary(buffer: string): string {
-  if (summaryStartOffset === -1) {
-    const startMatch = buffer.match(/"summary"\s*:\s*"/);
-    if (!startMatch) return '';
-    summaryStartOffset = startMatch.index! + startMatch[0].length;
-  }
-
-  let text = buffer.slice(summaryStartOffset);
-
-  // Stop at the next JSON key boundary
-  const endIdx = text.indexOf('","entities"');
-  if (endIdx !== -1) {
-    text = text.slice(0, endIdx);
-  }
-
-  return text
-    .replace(/\\"/g, '"')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\r/g, '\r')
-    .replace(/\\\\/g, '\\');
+  return {
+    text: text
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r')
+      .replace(/\\\\/g, '\\'),
+    offset,
+  };
 }
 
 function parseJSON(text: string): any {
@@ -324,7 +296,7 @@ app.post("/api/expand", async (req, res) => {
         { role: "user", content: render(expandPrompt.user, {
           entityName: entity.name,
           entityId: entity.id,
-          originalText: originalText || "",
+          originalText: escapeText(originalText || ""),
           existingEntities: JSON.stringify(existingEntities),
         }) }
       ],
@@ -333,7 +305,7 @@ app.post("/api/expand", async (req, res) => {
 
     let buffer = '';
     let lastSentLength = 0;
-    analysisStartOffset = -1;
+    let analysisStartOffset = -1;
 
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta;
@@ -346,7 +318,7 @@ app.post("/api/expand", async (req, res) => {
       const content = delta?.content;
       if (content) {
         buffer += content;
-        const analysis = extractPartialAnalysis(buffer);
+        const { text: analysis } = extractPartialField(buffer, analysisStartOffset, 'analysis', '","newEntities"');
         if (analysis.length > lastSentLength) {
           lastSentLength = analysis.length;
           res.write(`data: ${JSON.stringify({ type: 'chunk', text: analysis })}\n\n`);

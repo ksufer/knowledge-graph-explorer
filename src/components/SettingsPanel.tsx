@@ -104,6 +104,10 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  useEffect(() => {
+    return () => clearTimeout(timerRef.current);
+  }, []);
+
   // Dismiss model dropdown on outside click
   useEffect(() => {
     if (!modelsOpen) return;

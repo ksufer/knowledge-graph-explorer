@@ -4,8 +4,10 @@ import TextInput from './components/TextInput';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import AnalysisPanel from './components/AnalysisPanel';
 import SettingsPanel from './components/SettingsPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 import { GraphState, PanelState, Entity } from './types';
 import { mergeGraphData, slugify } from './lib/graphUtils';
+import { consumeSSEStream } from './lib/sseUtils';
 
 export default function App() {
   const [leftWidth, setLeftWidth] = useState(55); // percentage
@@ -91,53 +93,24 @@ export default function App() {
         throw new Error(`Analyze API failed with status ${res.status}`);
       }
 
-      // Consume SSE stream
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        sseBuffer += decoder.decode(value, { stream: true });
-        const parts = sseBuffer.split('\n\n');
-        sseBuffer = parts.pop() || '';
-
-        for (const part of parts) {
-          const line = part.trim();
-          if (!line.startsWith('data: ')) continue;
-
-          const payload = JSON.parse(line.slice(6));
-
-          if (payload.type === 'chunk') {
-            setPanelState(prev => ({
-              ...prev,
-              analysisContent: payload.text
-            }));
-          } else if (payload.type === 'thinking') {
-            setPanelState(prev => ({
-              ...prev,
-              thinkingContent: prev.thinkingContent + payload.text
-            }));
-          } else if (payload.type === 'done') {
-            setGraphData({
-              nodes: (payload.entities || []).map((e: any) => ({ ...e, depth: 0, expanded: false })),
-              edges: payload.relations || []
-            });
-
-            setPanelState({
-              selectedEntityId: null,
-              analysisContent: payload.summary || '生成图谱完成。',
-              thinkingContent: '',
-              suggestedExplorations: [],
-              isLoading: false
-            });
-          } else if (payload.type === 'error') {
-            throw new Error(payload.message || 'Stream error');
-          }
-        }
-      }
+      await consumeSSEStream(res, {
+        onChunk: (text) => setPanelState(prev => ({ ...prev, analysisContent: text })),
+        onThinking: (text) => setPanelState(prev => ({ ...prev, thinkingContent: prev.thinkingContent + text })),
+        onDone: (payload) => {
+          setGraphData({
+            nodes: (payload.entities || []).map((e: any) => ({ ...e, depth: 0, expanded: false })),
+            edges: payload.relations || []
+          });
+          setPanelState({
+            selectedEntityId: null,
+            analysisContent: payload.summary || '生成图谱完成。',
+            thinkingContent: '',
+            suggestedExplorations: [],
+            isLoading: false
+          });
+        },
+        onError: (message) => { throw new Error(message); },
+      });
     } catch (error: any) {
       if (error.name === 'AbortError') return;
       console.error(error);
@@ -192,59 +165,29 @@ export default function App() {
         throw new Error(`Expand API failed with status ${res.status}`);
       }
 
-      // Consume SSE stream
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = '';
+      await consumeSSEStream(res, {
+        onChunk: (text) => setPanelState(prev => ({ ...prev, analysisContent: text })),
+        onThinking: (text) => setPanelState(prev => ({ ...prev, thinkingContent: prev.thinkingContent + text })),
+        onDone: (payload) => {
+          setGraphData(prev => mergeGraphData(prev, payload.newEntities || [], payload.newRelations || [], entity.depth + 1));
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+          const finalAnalysis = payload.analysis || '';
+          const finalSuggestions = payload.suggestedExplorations || [];
+          analysisCacheRef.current.set(entity.id, {
+            analysisContent: finalAnalysis,
+            suggestedExplorations: finalSuggestions,
+          });
 
-        sseBuffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events (split by double newline)
-        const parts = sseBuffer.split('\n\n');
-        sseBuffer = parts.pop() || '';
-
-        for (const part of parts) {
-          const line = part.trim();
-          if (!line.startsWith('data: ')) continue;
-
-          const payload = JSON.parse(line.slice(6));
-
-          if (payload.type === 'chunk') {
-            setPanelState(prev => ({
-              ...prev,
-              analysisContent: payload.text
-            }));
-          } else if (payload.type === 'thinking') {
-            setPanelState(prev => ({
-              ...prev,
-              thinkingContent: prev.thinkingContent + payload.text
-            }));
-          } else if (payload.type === 'done') {
-            setGraphData(prev => mergeGraphData(prev, payload.newEntities || [], payload.newRelations || [], entity.depth + 1));
-
-            const finalAnalysis = payload.analysis || '';
-            const finalSuggestions = payload.suggestedExplorations || [];
-            analysisCacheRef.current.set(entity.id, {
-              analysisContent: finalAnalysis,
-              suggestedExplorations: finalSuggestions,
-            });
-
-            setPanelState(prev => ({
-              ...prev,
-              analysisContent: finalAnalysis,
-              thinkingContent: '',
-              suggestedExplorations: finalSuggestions,
-              isLoading: false
-            }));
-          } else if (payload.type === 'error') {
-            throw new Error(payload.message || 'Stream error');
-          }
-        }
-      }
+          setPanelState(prev => ({
+            ...prev,
+            analysisContent: finalAnalysis,
+            thinkingContent: '',
+            suggestedExplorations: finalSuggestions,
+            isLoading: false
+          }));
+        },
+        onError: (message) => { throw new Error(message); },
+      });
     } catch (error: any) {
       if (error.name === 'AbortError') return;
       console.error(error);
@@ -337,7 +280,8 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex flex-1 overflow-hidden">
+      <ErrorBoundary>
+        <main className="flex flex-1 overflow-hidden">
         {/* Left Panel */}
         <div
           className="flex flex-col h-full border-r border-gray-200 select-none"
@@ -389,6 +333,7 @@ export default function App() {
           />
         </div>
       </main>
+      </ErrorBoundary>
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 

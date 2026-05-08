@@ -11,7 +11,8 @@
       "Bash(npx tsx *)",
       "WebFetch(domain:api-docs.deepseek.com)",
       "Bash(PORT=3099 timeout 5 npx tsx server.ts)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(npx vitest *)"
     ]
   }
 }
